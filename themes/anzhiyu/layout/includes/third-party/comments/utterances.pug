@@ -1,0 +1,27 @@
+- const { src, repo, issue_term, theme:utterancesTheme, crossorigin } = theme.utterances
+- const { use, lazyload } = theme.comments
+
+script.
+  (() => {
+    const loadUtterances = () => {
+      const config = {
+        src: '!{src}',
+        repo: '!{repo}',
+        'issue-term': '!{issue_term}',
+        theme: '!{utterancesTheme}',
+        crossorigin: '!{crossorigin}',
+        async: true
+      }
+
+      const script = document.createElement('script')
+      Object.entries(config).forEach(([key, value]) => script.setAttribute(key, value))
+      document.getElementById('utterances-wrap').appendChild(script)
+    }
+
+    if ('!{use[0]}' === 'Utterances' || !!{lazyload}) {
+      if (!{lazyload}) anzhiyu.loadComment(document.getElementById('utterances-wrap'), loadUtterances)
+      else loadUtterances()
+    } else {
+      window.loadOtherComment = loadUtterances
+    }
+  })()

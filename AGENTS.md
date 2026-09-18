@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-This repository is a Hexo 8 blog. Site-wide settings live in `_config.yml`; Anzhiyu settings are in `_config.anzhiyu.yml`. Write posts and pages under `source/` (posts use `source/_posts/*.md`), and use `scaffolds/` for templates. The `themes/anzhiyu` directory is a Git submodule containing Pug layouts, Stylus, JavaScript, and assets. `public/` is generated and ignored. GitHub Pages automation is in `.github/workflows/pages.yml`.
+This repository is a Hexo 8 blog. Site-wide settings live in `_config.yml`; Anzhiyu settings are in `_config.anzhiyu.yml`. Write posts and pages under `source/` (posts use `source/_posts/*.md`), and use `scaffolds/` for templates. The `themes/anzhiyu` directory is tracked as part of this repository and contains the Pug layouts, Stylus, JavaScript, and assets. `public/` is generated and ignored. GitHub Pages automation is in `.github/workflows/pages.yml`.
 
 ## Build, Test, and Development Commands
 
@@ -29,4 +29,4 @@ Existing commits use short Chinese summaries (for example, `修复` and `添加�
 
 ## Configuration & Security
 
-Do not commit API keys, analytics secrets, comment credentials, or private URLs in `_config*.yml` or theme files. Keep personal overrides local. When updating Anzhiyu, commit the theme change first, then update the submodule pointer here and verify the root build.
+Do not commit API keys, analytics secrets, comment credentials, or private URLs in `_config*.yml` or theme files. Keep personal overrides local. When updating Anzhiyu, keep the theme changes in this repository and verify the root build.

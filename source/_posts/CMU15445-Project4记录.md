@@ -1,0 +1,286 @@
+---
+title: CMU15445 Project4记录
+date: 2026-08-05 01:24:46
+categories:
+  - 数据库
+tags:
+  - 数据库
+  - CMU15445
+cover: /img/covers/CMU15445-Project4-cover.png
+comments: true
+toc: true
+post_copyright:
+  enable: true
+  location: 江苏 南京
+---
+
+## p4项目记录
+
+在写数据库的页面置换、底层B+树结构、SQL的执行器优化器，我们终于到了数据库的最外层，也就是并发控制，实现MVOCC来为 BusTub 添加事务支持。
+
+主要内容就是：
+
+- Timestamps (时间戳)
+- Storage Format (存储格式) + Sequential Scan / Tuple Retrieval (顺序扫描 / 元组检索)
+- MVCC Executors (MVCC 执行器)
+- Primary Key Index (主键索引)
+
+终于要写完了啊...满打满算快写了两个月，马上就要写毕设了都...
+
+### Task #1 - Timestamps 
+
+#### **1.1 Timestamp Allocation**
+
+这里主要是实现一个事务快照的效果，确保每个事务看到的快照是统一的。
+
+例如：
+
+```
+事务1 (ts=1): 创建了 A1, B1, C1
+事务2 (ts=2): 修改了 A→A2, C→C2
+事务3 (ts=3): 修改了 A→A3, B→B3, 创建了 D→D3
+事务4 (ts=4): 修改了 A→A4, B→B4, C→C4
+```
+
+当**`read_ts = 3`**，即**事务3之后、事务4之前，此时可以看到的快照是：A3、B3、C2、D3
+
+简单来说就是回溯版本链，找到对应快照。
+
+这里需要阅读`TransactionManager`类，在`Begin()`与`Commit()`中为事务分配正确的 read timestamp 和 commit timestamp，修改`Transaction`类。
+
+在提交时，需要读取事务操作过的所有tuple，并进行提交，置为当前事务的`commit_ts`。
+
+**1.2 Watermark **
+
+watermark 是所有**尚未提交或中止**的事务中最低的 read timestamp。如果没有这样的事务，watermark 就是最新的 commit timestamp。计算 watermark 最简单的方法是遍历事务管理器 map 中的所有事务，并找到所有进行中（in-progress）事务的最小 `read_ts`。
+
+但是这种做法比较低下，最好实现至少`O(log N)`时间复杂度的算法，官方也推荐使用`hashmap`的做法，也预留了`current_reads_`的接口，这样可以实现均摊`O(1)`的算法。当然也可以将`unoreded_map`改为`map`，这样利用红黑树实现`O(logN)`的算法。
+
+我自己实现下来用`unordered_map`的均摊O(1)在初步的test里耗时较短。
+
+### Task #2 - Storage Format and Sequential Scan
+
+#### 2.1 Storage Format
+
+这个task的官方文档看的我晕厥了，翻译成中文之后还是要中译中...简单来说就是要实现`execution_common.cpp`内的`ReconstructTuple`类，这个类需要通过`Undo Logs重新拼凑原先的数据，来实现还原的效果。
+
+这里最好先阅读一下`UndoLog`的结构，再来思考如何实现一般化的数据回溯流程。
+
+```c++
+struct UndoLog {
+  /* 删除标记 */
+  bool is_deleted_;
+  /* 修改标记 */
+  std::vector<bool> modified_fields_;
+  /* 被修改的元组 这里只包含被修改的列 */
+  Tuple tuple_;
+  /* 时间戳 官方建议只用来检查是否是最初log */
+  timestamp_t ts_{INVALID_TS};
+  /* UndoLog 的版本链 在ReconstructTuple内不使用 */
+  UndoLink prev_version_{};
+};
+```
+
+整体流程如下：
+
+1. 用 modified_fields_ 找出 undo log 中保存了哪些原表字段；
+2. 用这些字段构造 partial_schema；
+3. 用 partial_schema 从 log.tuple_ 读取旧值；
+4. 根据 original_indices 写回 full tuple 的对应列；
+5. 最后用完整 current_values 重组出完整 Tuple。
+
+#### 2.2 Sequential Scan
+
+这个task要实现`CollectUndoLogs` 来收集所有在当前事务 `read timestamp` 之后产生的 `undo logs` ，同时重写一版本`SeqScanExecutor`，在从 table heap 中读取到 base tuple 时，不再直接返回，而是结合 `CollectUndoLogs` 和 `ReconstructTuple` 获取当前事务“应该看到”的元组版本。
+
+为什么这里要这么做，因为在MVOCC下，数据库中同一个元组可能同时存在多个版本。当一个事务进行全表扫描时，table heap 中存储的基础元组（base tuple）可能有如下情况：
+
+- 已经被其他更新的事务修改且提交的（时间戳在当前事务之后）。
+- 正在被其他未提交事务修改的（携带临时时间戳）。
+
+为了保证**隔离性**，当前事务只能看到在它的 `read timestamp` 及之前已经提交的数据+自己做出的修改。
+
+首先是`CollectUndoLogs`，主要分析 `base tuple` 对当前事务是否可见，因此会有三种情况：
+
+1. $base \ ts  \leq  txn \ ts$ 认为可见
+2. `base_ts`是临时修改，且$base_meta.ts_ = txn\rightarrow GetTransactionTempTs()$，也是可见
+3. $base \ ts > txn \ ts || base \ meta.ts \neq  txn\rightarrow GetTransactionTempTs()$ 那么`base_tuple`对于`txn`而言就是不可见，需要返回`undolog`。
+
+然后是重写`SeqScanExecutor`，基于原先的结构，不一样的是需要检查undo_logs，如果并非可见版本，就需要利用我们之前写的：`CollectUndoLogs` + `ReconstructTuple`回溯版本链，找到可见版本并写入了。这里也很好理解了，因为版本并发控制的事务特性，扫描返回的值也有所不同。
+
+在最后完成，我们再回到一开始，为什么在写`ReconstructTuple`可以不恢复`is_deleted`的`tuple`了，主要还是在于：`is_deleted`只是一个标志，这一层历史版本不存在，因此**这条 log 不贡献列值恢复，只贡献存在性状态**；是否继续往前重组，取决于后面还有没有更老的 `undo log`。再细究一点，就是`UndoLog`的实现方式了，在`txn_scan_test.cpp`内，带有`is_deleted`标志的`log`与普通的`写log`是交替出现的，他不会交叠，因此可以将整个`UndoLog`在语义上看作“tuple存在”和“列值变化”是分开表示的。
+这是不是也算是一种面向测试的编程...
+
+### Task #3 - MVCC Executors
+
+#### 3.1 insert executor
+
+实现有 `MVCC` 效果的 `insert` 执行器，主体和 p3 里的结构一样，主要修改的地方就是提供一个临时修改 `ts`、将 `RID` 写到 `write set` 内。
+主要的点就是考虑，作为一个新插入的 `tuple` ,他的 `MVCC` 版本链到底需不需要一个无效的 `ungolink`。同时由于测试用例都是单线程的，因此可以传入 `nullopt`，同时我为了保证 `undolog` 整体的语义，我传入了一个无效 `undolnk::nullopt` 作为初始插入的初始化。(完全没必要，因为可以在版本链查找时修改好，查询 `prev_version_.hasvalue() + is_valid()` 就行了...）
+关于并发的问题，之后再说了。
+
+#### 3.2 Commit
+
+由于一次只能执行一条 `Commit` ,基本就是加锁，然后原子操作。其实一开始看到原子的 `last_commit_ts_` 就自然而然这么写了，基本不需要修改。这里主要就是实现 `TxnMgrDbg`，打印当前的txn+版本链，用于后续检查功能。
+
+#### 3.3 Generate Undo Log
+
+在实现 update 和 delete 执行器之前，需要实现 `GenerateNewUndoLog` 和 `GenerateUpdatedUndoLog`。基于给定的原始 base tuple 和修改后的 target tuple，要返回应存储在进行修改的事务中的 `UndoLog`。
+`GenerateNewUndoLog` 用于每个元组的**第一次**修改，主要考量怎么生成一个UndoLog。
+之后，使用 `GenerateUpdatedUndoLog` 将修改**合并**到一个 `UndoLog` 中，考虑的是怎么写入。
+针对`GenerateUpdatedUndoLog`这一项，官方说明了需要注意的三种情况，其中`insery`比较特殊，基础的`insert`就是利用新的`RID`去插入一项，`UndoLog`只关注同一`RID`内容，而当`insert`到删除元组时才会进入`updateUndoLog`问题内：
+
+```cpp
+// update
+base_tuple != nullptr && target_tuple != nullptr
+// delete
+base_tuple != nullptr && target_tuple == nullptr
+// insert 一个已经 delete 的RID
+base_tuple == nullptr && target_tuple != nullptr
+
+// base_tuple == nullptr && target_tuple == nullptr 这种情况就在插入范围内了
+```
+
+---
+
+一个返回来的记录，在测试时我发现我`GenerateUpdatedUndoLog`的语义发生了错误，这时我才发现我比较的对象发生了错误，我需要先将`base_tuple`按照`logs`返回到最初的状态，再进行对比，重新补全才是。只有这样，`Update`的语义才是：**A transaction should hold at most one undo log for each RID**。所有的修改都是基于最先开始的那个`Tuple`,所做的是合并，而不是增加`log`。
+修改完后，再测试`GenerateUndoLogTest`就没有错误了。
+
+#### 3.4 Update & Delete Executor
+
+修改`update+delete`执行器，成为MVCC写操作。相较于`P3`写的内容，这里就需要实现版本链控制。
+以`update`为例，相较于之前的写法（仅我个人写法），会有一部分变动：
+	先删除旧`tuple`再写入新`tuple`来实现更新，`MVCC`版本更加的合理，所有的操作都是挂在同一个`RID`上的，操作更应该原地修改，而旧版本需要写入`undolog`，以便恢复。
+	更加重要的是写写冲突：当其他事务已经写过，且这个写入对当前事务不可见，就需要抛出异常，以保证事务的隔离性。
+	就像3.4内写的一样，同一事务的多次操作在`undolog`看来只是一次更新，后续的操作就需要合并。
+	`MVCC`版本的`update`是一个`pipebreaker`，为了避免[Halloween](https://en.wikipedia.org/wiki/Halloween_Problem)类问题，简单来说就是避免`update`在边扫描边修改的过程中，扫描结果被自己污染。
+按照这么分析，`delete`也是类似的，因为他也会修改`tuple`再更新`undolog`。
+在写`update+delete`时，记得维护`AppendWriteSet`，`delete`时也不要删除索引键，因为`MVCC`需要查询到对应索引键。
+
+#### 3.5 Stop-the-world Garbage Collection
+
+垃圾回收器，不用考虑并发情况。因此直接获取`water_mark`，然后遍历所有的表，检查事务 map。如果一个事务同时满足以下两个条件，则将其从事务 map 中直接移除：
+
+- 该事务处于已提交（committed）或已中止（aborted）状态。
+- 该事务**不包含任何**对最低 `read timestamp` 事务可见的 undo logs。
+  整体语义就是：**移除所有不包含对具有最低 read timestamp 的事务可见的任何 undo logs 的事务**。
+  我在这里写的时候，发现之前自己写的`TxnMgrDbg`没有注意到已经删除的`undo_log`，也就是官方所说的：
+  `You DO NOT need to update the previous undo log to modify the dangling pointer and make it an invalid pointer, and it is fine to leave it there for this project.`
+  这里就需要检查之前自己的语义了，要保证所有的`undolog`读取的都是：`undo_log.ts_ <= read_ts`的内容，同时在打印时需要检查当前的`undolog`是不是已经被删除了。
+
+#### 3.6 Abort
+
+`Abort`语义就是我们所说的事务回滚，对应了`ACID`里的**Atomicity（原子性）**。
+从一个事务看来，整体流程就是：
+
+- 事务在 `UPDATE/DELETE/INSERT` 时先改当前版本，并留下 `undo log`
+- 如果检测到**写写冲突**，事务会被标成 `TAINTED`
+- 之后调用 `Abort(txn)`，把这个事务改过的 tuple 恢复成旧版本，比较像`BuildOriginalTuple`
+- 同时把版本链头也接回去，这样其他事务才能继续写这个 RID
+  那么官方给了两种解法：
+- 第一种：只把 `table heap` 改回原值，但版本链里还保留 `aborted txn` 的 `undo log`。这种做法会依赖 `water_mark + Garbage Collection` 才能清除。
+- 第二种：原子的恢复`table heap`+`undo link`，也就是把版本链头直接跳过 aborted txn 自己那一层，重新连回更早的版本。
+  想也不用想，直接实现第二种吧。
+  现在来分析`insert、update、delete`三种情况下的`Abort()`该怎么实现（这一步是基于我的实现）：
+- `insert`不会生成`undolog`，因此直接`ts=0,is_delted = true`
+- `update + delete`有`undolog`，可以根据`undolog`直接恢复。
+- `insert -> delete`比较特殊，参照`insert`处理。
+  最后连接完`restored_link`，利用`UpdateTupleAndUndoLink`原子写回即可。
+  按照这个逻辑，测试`SimpleAbortTest`通过。
+
+### Task #4 - Primary Key Index
+
+在已经有的 `MVCC table heap` 基础上，把“主键唯一性”和“并发插入冲突”的考虑补充到 `executor` 上。
+
+#### 4.1 Index Insert 
+
+在原先修改的`insert executor`的基础上增加冲突检测，同时还要补充在写写冲突触发时的回滚。
+那么可以分析一下会遇见的情况：
+
+- key 早就存在于 index：直接设置，后续进Abort()
+- key 不存在，整个流程没人抢：正常
+- 插入前的查询没有key，但是在`insert`时返回`fasle`，说明其他事务在这之间实现了插入，触发了唯一键冲突。
+  这样一来，所有除了有`EnsureIndexScan`的Test都能通过了。
+  当然，如果注意到这么一句话：If you are going to implement [Task 4.2](https://15445.courses.cs.cmu.edu/fall2025/project4/#task4.2), then it is possible that the index points to a deleted tuple, and in this case, you should _not_ abort.
+  那么情况一可以写的更加详细一点，判断所有内容。
+
+#### 4.2 Index Scan, Delete, & Update -> Task4的整体语义
+
+在写到这里时我发现不对了，因为我在4.1里做的`insert`语义与后续`update`等语义有一些冲突，就算我按照官方给的提示去写也没有那么全面。所以又去详细翻看了一下官方对Task4的介绍，我觉得整个Task4不能单独的写，而是要整体去完成，而每一个task都是在逐渐逼近MVCC的目标。
+在整个Task4，就是需要对 `table heap` 里的 `RID`/版本链实现 `MVCC`，而主键 index 只是进入这个 MVCC 世界的一条入口。
+
+- 主键 `index` 负责把 `key` 映射到某个 `RID`。
+- `MVCC` 负责决定这个 `RID` 在当前事务时间点下是否可见、是否已删除、该读哪个历史版本。
+- 所以 `index 查到 key` 不等于 `这个 key 当前一定存在`，因为它可能指向一个 `deleted RID`。
+- insert / delete / update / index scan / serializable verification，本质上都在维护这套“`key -> RID` + `RID -> version chain`”的一致性。
+  那么我们就要看4.1-4.3是怎么一步步实现这个内容的：
+- 4.1:多个事务并发插入同一个 `primary key` 时，最多只能有一个成功，同时可能会指向一个`deleted RID`；
+- 4.2:`index entry` 一旦创建，就永久指向同一个 `RID`；删除 `tuple` 时不能把它删掉。因为旧事务仍然可能需要被还原到某一`read_ts` 下能看到的旧版本；
+- 4.3:针对主键的`update`需要特殊修改，而是 `delete + insert`，同时这一套逻辑需要沿用4.2的完整语义。
+  所以整体看下来，理清全部的语义，再去补全这个`MVCC`下的`insert、update、delete、index scan`是最好的，他本身就是一气呵成的一个流程。
+
+##### insert的语义
+
+主要就是在index entry上的修改。
+情况 A：key 不存在于 index -> 插入
+情况 B：key 在 index 中存在，但对应 RID 对当前事务可见为 live tuple -> 键冲突
+情况 C：key 在 index 中存在，但对应 RID 对当前事务可见为 deleted / 不存在 -> 复活RID
+
+##### Delete 的语义
+
+- 把当前 RID 的最新版本改成 deleted
+- 保留旧版本信息到 undo log
+- 由于需要回复旧RID，因此不删除任何 index entry
+
+##### Update 的语义
+
+情况A：非主键 -> 生成undolog，插入新的entry
+情况B：主键变化 -> delete + insert
+
+##### index scan 
+
+需要检查undolog，取可见tuple
+
+1. index 找到一批 RID
+2. 对每个 RID：
+   - 取 base tuple
+   - 收集 undo logs
+   - 返回所有基于当前 time stamp 可见的tuples
+3. 对可见做 filter predicate
+   对于index scan + seq scan，为了完成可串行化验证，需要在每次调用顺序扫描执行器或索引扫描执行器时，将 scan filter（即 scan predicate / 扫描谓词）存储在事务中，提交时拿它和冲突事务的写集做 backward validation，检查 phantom。同时为避免在index_scan中遍历到同一个 RID 多次，需要收集`RID`进行去重，否则会把同一条可见 tuple 输出两次。
+
+##### 4.4 Serializable Verification
+
+最后我们需要实现MVCC内最重要的一条，**事务隔离**。
+之前在`index scan` 与 `seq scan` 内提前做好了`AppendScanPredicate`，现在需要在`commit`内做最后的**串行化验证**。
+简而言之，这个任务是在乐观并发控制模型下，对 `SERIALIZABLE` 事务在提交阶段做一次“读集验证”。核心思想是：事务执行时先按快照读，提交时再检查“我读过的谓词范围，是否被我开始之后提交的事务改坏了”。如果改坏了，就 abort 当前事务，以此保证可串行化。
+
+可以把我的实现概括为：
+
+1. 如果事务没有 `scan predicate`，直接返回 `true`。
+2. 如果事务是只读事务，也直接返回 `true`。
+3. 找出所有满足 `other.commit_ts > txn.read_ts` 的已提交事务。
+4. 遍历这些事务的 `write set`。
+5. 对每个被写过的 `RID`，沿版本链恢复出它在不同时刻的 `before image` 和 `after image`。
+6. 判断这些变化是否会让当前事务曾经扫描过的谓词结果发生变化；如果会，就返回 `false`，否则最终返回 `true`。
+
+这里最重要的语义是：
+
+- 不是在检查“有没有写过这张表”。
+- 是在检查“有没有改动了之前读过的谓词范围”。
+
+按版本变化分类可以这样写：
+
+- `before = nullopt, after = tuple`：`insert`  
+  只检查 `after` 是否命中任一 `scan predicate`。
+- `before = tuple, after = nullopt`：`delete`  
+  只检查 `before` 是否命中任一 `scan predicate`。
+- `before = tuple, after = tuple`：`update`  
+  同时检查 `before` 和 `after`，因为它可能是“移出范围”或“移入范围”。
+- `before = nullopt, after = nullopt`：`no-op`  
+  可以跳过。这类情况本质上对谓词可见结果没有贡献，比如“插入后又删掉，最终对外仍不存在”。
+  总之P4也是做完了，一切都写完了。
+
+{% asset_img leaderboard.png 排行榜 %}
+*完结撒花了。*
+{% asset_img complete.png 结束总览 %}

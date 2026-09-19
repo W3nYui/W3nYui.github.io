@@ -807,7 +807,7 @@ aside:
     category: true
   card_author:
     enable: true
-    description: 橘子不是唯一的水果。我有很多想做的事情，我也不希望未来自己可以听下思考，所以我在不断的书写，只是换了种形式去记录。有目的的人生才会迷路，我只是来人生散步。
+    description: 橘子不是唯一的水果。我有很多想做的事情，我也不希望未来自己可以停下思考，我需要不断的阅读与记录。
     # <div style="line-height:1.38;margin:0.6rem 0;text-align:justify;color:rgba(255, 255, 255, 0.8);">这有关于<b style="color:#fff">产品、设计、开发</b>相关的问题和看法，还有<b style="color:#fff">文章翻译</b>和<b style="color:#fff">分享</b>。</div><div style="line-height:1.38;margin:0.6rem 0;text-align:justify;color:rgba(255, 255, 255, 0.8);">相信你可以在这里找到对你有用的<b style="color:#fff">知识</b>和<b style="color:#fff">教程</b>。</div> # 默认为站点描述
     name_link: https://www.bilibili.com/bangumi/play/ep279764/?share_source=copy_web
 
@@ -1059,8 +1059,8 @@ home_top:
       shadow: var(--anzhiyu-shadow-blue)
       class: blue
       icon: anzhiyu-icon-dove
-    - name: 奇了八怪的CPP项目
-      path: /categories/CPP项目/
+    - name: 奇了八怪的CPP学习
+      path: /categories/CPP学习/
       shadow: var(--anzhiyu-shadow-red)
       class: red
       icon: anzhiyu-icon-fire

@@ -22,19 +22,17 @@ menu:
 
 # nav相关配置
 nav:
-  enable: false
+  enable: true
   travelling: false
   clock: false
   menu:
     - title: 网页
       item:
-        - name: 博客
-          link: https://hexo.anheyu.com/
+        - name: BiliBili
+          link: https://space.bilibili.com/5728123/
           icon: /img/favicon.ico
-    - title: 项目
-      item:
-        - name: 安知鱼图床
-          link: https://image.anheyu.com/
+        - name: Github
+          link: https://github.com/W3nYui
           icon: https://image.anheyu.com/favicon.ico
 
 # mourn （哀悼日，指定日期网站简单变灰，不包括滚动条）
@@ -426,7 +424,7 @@ crisp:
 footer:
   owner:
     enable: true
-    since: 2020
+    since: 2026
   custom_text:
   runtime:
     enable: false

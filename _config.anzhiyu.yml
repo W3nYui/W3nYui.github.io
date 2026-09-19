@@ -864,11 +864,18 @@ runtimeshow:
 
 # Console - Newest Comments
 newest_comments:
-  enable: true
+  enable: false
   sort_order: # Don't modify the setting unless you know how it works
   limit: 6
   storage: 10 # unit: mins, save data to localStorage
   avatar: true
+
+# Console image gallery
+gallery:
+  enable: true
+  label: 展示柜
+  title: 随机图片
+  emptyText: 请将图片放入 source/img/gallery/
 
 # Bottom right button (右下角按钮)
 # --------------------------------------

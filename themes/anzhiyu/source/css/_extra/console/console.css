@@ -76,6 +76,60 @@
   height: calc(100% - 172px);
 }
 
+#console .console-gallery-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+#console .console-gallery-refresh {
+  border: 0;
+  border-radius: 8px;
+  padding: 0.35rem 0.7rem;
+  color: var(--anzhiyu-fontcolor);
+  background: var(--anzhiyu-card-bg);
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+#console .console-gallery-refresh:hover {
+  color: var(--anzhiyu-white);
+  background: var(--anzhiyu-main);
+}
+
+#console #card-newest-comments .console-gallery {
+  display: block;
+  height: 100%;
+  margin-top: 1.25rem;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--anzhiyu-card-bg);
+}
+
+#console #card-newest-comments .console-gallery img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 380px;
+  object-fit: cover;
+  transition: transform 0.3s ease;
+}
+
+#console #card-newest-comments .console-gallery:hover img {
+  transform: scale(1.04);
+}
+
+#console #card-newest-comments .console-gallery-empty {
+  display: grid;
+  place-items: center;
+  min-height: 380px;
+  margin-top: 1.25rem;
+  border-radius: 10px;
+  color: var(--anzhiyu-secondtext);
+  background: var(--anzhiyu-card-bg);
+}
+
 #console .console-mask {
   background: var(--anzhiyu-maskbgdeep);
   backdrop-filter: saturate(100%) blur(0px);

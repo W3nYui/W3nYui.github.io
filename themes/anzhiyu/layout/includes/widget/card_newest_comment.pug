@@ -1,8 +1,37 @@
-if theme.newest_comments.enable
+if theme.gallery && theme.gallery.enable
   .console-card#card-newest-comments
     .card-content
-      .author-content-item-tips=_p('console.interaction')
-      span.author-content-item-title 
-        != _p('aside.card_newest_comments.headline')
-    .aside-list
-      span= _p('aside.card_newest_comments.loading_text')
+      .author-content-item-tips=theme.gallery.label
+      .console-gallery-heading
+        span.author-content-item-title=theme.gallery.title
+        button.console-gallery-refresh(type='button' aria-label='换一张' onclick='window.refreshGalleryImage(event)') 换一张
+    - const galleryImage = gallery_image()
+    if galleryImage
+      a.console-gallery(href=galleryImage, target='_blank', rel='noopener')
+        img(src=url_for(galleryImage), alt=theme.gallery.title, loading='lazy')
+    else
+      .console-gallery-empty=theme.gallery.emptyText
+    if galleryImage
+      script.
+        (() => {
+          const images = !{JSON.stringify(gallery_images())}
+          window.refreshGalleryImage = (event) => {
+            event && event.preventDefault()
+            const image = document.querySelector('#card-newest-comments .console-gallery img')
+            const link = image && image.closest('.console-gallery')
+            if (!image || !link || images.length < 2) return
+
+            const current = new URL(image.src, window.location.href).href
+            let next = current
+            while (next === current) {
+              next = new URL(images[Math.floor(Math.random() * images.length)], window.location.href).href
+            }
+            image.src = next
+            link.href = next
+          }
+
+          const image = document.querySelector('#card-newest-comments .console-gallery img')
+          if (image && images.length > 1) {
+            window.refreshGalleryImage()
+          }
+        })()

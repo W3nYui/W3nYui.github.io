@@ -272,6 +272,12 @@ hexo.extend.filter.register(
         storage: 10,
         avatar: true,
       },
+      gallery: {
+        enable: false,
+        label: "展示柜",
+        title: "随机图片",
+        emptyText: "请将图片放入 source/img/gallery/",
+      },
       translate: {
         enable: false,
         default: "繁",

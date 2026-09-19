@@ -813,7 +813,7 @@ aside:
 
   card_announcement:
     enable: true
-    content: 我还要好多想学的，我怎么学也学不完...希望我有限的时间。
+    content: 我还要好多想学的，我怎么学也学不完...希望我有无限的时间。
   card_weixin:
     enable: false
     face: https://bu.dusays.com/2023/01/13/63c02edf44033.png
@@ -1055,7 +1055,7 @@ home_top:
   siteText: https://github.com/W3nYui
   category:
     - name: 数据库学习
-      path: /categories/数据库学习/
+      path: /categories/数据库/
       shadow: var(--anzhiyu-shadow-blue)
       class: blue
       icon: anzhiyu-icon-dove

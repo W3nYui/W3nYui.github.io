@@ -4,6 +4,9 @@
 script.
   (() => {
     const loadUtterances = () => {
+      const container = document.getElementById('utterances-wrap')
+      if (!container || container.querySelector('iframe.utterances-frame')) return
+
       const config = {
         src: '!{src}',
         repo: '!{repo}',
@@ -15,7 +18,7 @@ script.
 
       const script = document.createElement('script')
       Object.entries(config).forEach(([key, value]) => script.setAttribute(key, value))
-      document.getElementById('utterances-wrap').appendChild(script)
+      container.appendChild(script)
     }
 
     if ('!{use[0]}' === 'Utterances' || !!{lazyload}) {

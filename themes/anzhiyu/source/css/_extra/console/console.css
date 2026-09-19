@@ -84,18 +84,27 @@
 }
 
 #console .console-gallery-refresh {
-  border: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  border: var(--style-border);
   border-radius: 8px;
   padding: 0.35rem 0.7rem;
-  color: var(--anzhiyu-fontcolor);
-  background: var(--anzhiyu-card-bg);
+  color: inherit;
+  background: var(--card-bg);
+  font: inherit;
+  line-height: 1.2;
   cursor: pointer;
   transition: 0.2s ease;
 }
 
 #console .console-gallery-refresh:hover {
-  color: var(--anzhiyu-white);
+  color: #fff;
   background: var(--anzhiyu-main);
+}
+
+[data-theme="dark"] #console .console-gallery-refresh {
+  color: inherit;
+  background: var(--card-bg);
 }
 
 #console #card-newest-comments .console-gallery {
